@@ -1,0 +1,170 @@
+openapi: 3.0.3
+info:
+  title: Multi-Tenant User Management API
+  version: 1.0.0
+  description: Each company only sees its own data. companyId always comes from the JWT.
+servers:
+  - url: http://localhost:5000/api
+tags: [{ name: Auth }, { name: Users }, { name: Company }]
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    UserId: { name: id, in: path, required: true, schema: { type: string } }
+  responses:
+    Unauthorized: { description: Missing or invalid token }
+    Forbidden: { description: Role not allowed }
+    NotFound: { description: Not found in your company }
+    ValidationError: { description: Validation failed }
+  schemas:
+    User:
+      type: object
+      properties:
+        _id: { type: string }
+        companyId: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [admin, manager, employee] }
+        phone: { type: string }
+        department: { type: string }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    UserInput:
+      type: object
+      required: [name, email, password]
+      properties:
+        name: { type: string, example: Sara Ahmed }
+        email: { type: string, example: sara@acme.com }
+        password: { type: string, example: Password123 }
+        role: { type: string, enum: [admin, manager, employee] }
+        phone: { type: string }
+        department: { type: string }
+paths:
+  /auth/register-company:
+    post:
+      tags: [Auth]
+      summary: Register a company and its first admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyName, companyEmail, name, email, password]
+              properties:
+                companyName: { type: string, example: Acme Ltd }
+                companyEmail: { type: string, example: info@acme.com }
+                name: { type: string, example: Ali Khan }
+                email: { type: string, example: ali@acme.com }
+                password: { type: string, example: Password123 }
+      responses:
+        '201': { description: Created, returns token }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { description: Email already in use }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: ali@acme.com }
+                password: { type: string, example: Password123 }
+      responses:
+        '200': { description: Returns token, user and company }
+        '401': { description: Invalid credentials }
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user and company
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /users:
+    get:
+      tags: [Users]
+      summary: List users (admin, manager) with pagination, search, filter, sort
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, default: 10, maximum: 100 } }
+        - { name: search, in: query, description: Matches name, email, department, schema: { type: string } }
+        - { name: role, in: query, schema: { type: string, enum: [admin, manager, employee] } }
+        - { name: isActive, in: query, schema: { type: boolean } }
+        - { name: sortBy, in: query, schema: { type: string, enum: [createdAt, name, email, role] } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc] } }
+      responses:
+        '200': { description: Paginated list with meta }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Users]
+      summary: Create user (admin any role, manager employees only)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserInput' }
+      responses:
+        '201': { description: Created }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Email already in use }
+  /users/{id}:
+    parameters: [{ $ref: '#/components/parameters/UserId' }]
+    get:
+      tags: [Users]
+      summary: Get one user (employees can only view themselves)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Users]
+      summary: Update user (see RBAC rules in README)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserInput' }
+      responses:
+        '200': { description: Updated }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Users]
+      summary: Soft delete user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /company:
+    get:
+      tags: [Company]
+      summary: Get own company
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Company]
+      summary: Update own company (admin only)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string }
+      responses:
+        '200': { description: Updated }
+        '403': { $ref: '#/components/responses/Forbidden' }
